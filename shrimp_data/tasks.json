@@ -1,0 +1,187 @@
+{
+  "tasks": [
+    {
+      "id": "7c4fd640-ed61-4d2e-9257-e7104af531b0",
+      "name": "환경 설정 및 Notion DB 구성 가이드 확인",
+      "description": "Phase 1 코드 구현 전 필수 선행 작업 확인.\n.env.local 파일이 존재하는지 확인하고, Notion Integration 및 데이터베이스 구성이 준비되었는지 체크리스트를 제공한다.\n이 태스크는 코드 수정 없이 환경 준비 상태를 점검하고 사용자에게 필요한 수동 작업을 안내한다.",
+      "notes": "이 태스크는 코드 구현 없음. 환경이 준비되지 않으면 [1-3] API 로직 구현 후 E2E 테스트가 불가능하므로 선행 필수.",
+      "status": "in_progress",
+      "dependencies": [],
+      "createdAt": "2026-04-01T09:11:16.482Z",
+      "updatedAt": "2026-04-01T09:16:12.927Z",
+      "relatedFiles": [
+        {
+          "path": ".env.local.example",
+          "type": "REFERENCE",
+          "description": "환경변수 예시 파일 (실제 값 입력 후 .env.local로 복사)"
+        }
+      ],
+      "implementationGuide": "1. .env.local 파일 존재 여부 확인 (없으면 .env.local.example 복사 안내)\n2. 필수 환경변수 세팅 체크리스트 출력:\n   - NOTION_API_KEY (https://www.notion.so/my-integrations 에서 발급)\n   - NOTION_DATABASE_ID (Notion DB URL에서 추출)\n   - PROVIDER_NAME, PROVIDER_EMAIL (필수)\n   - NEXT_PUBLIC_BASE_URL=http://localhost:3000\n3. Notion 준비 사항 체크리스트:\n   - Quotes 데이터베이스 생성 여부 (속성: token/Rich Text, client_name, issued_at/Date, expires_at/Date, subtotal/Number, tax_rate/Number, memo/Rich Text)\n   - Integration 연결 허용 여부\n   - 테스트 견적서 3개 준비: (A) 정상 토큰+항목 3개, (B) expires_at 과거 날짜, (C) 항목 없는 테이블 블록\n4. 페이지 본문 테이블 블록(옵션 A) 방식 사용 확정 안내",
+      "verificationCriteria": ".env.local 파일이 존재하고 NOTION_API_KEY, NOTION_DATABASE_ID, PROVIDER_NAME, PROVIDER_EMAIL, NEXT_PUBLIC_BASE_URL 5개 필수 변수가 모두 입력된 상태. Notion에 테스트 견적서 3개(정상/만료/빈항목)가 존재하는 상태.",
+      "analysisResult": "Phase 1 목표: Notion 데이터베이스에서 견적서 데이터를 안전하게 조회하는 서버 파이프라인 완성 + Playwright MCP E2E 시나리오 1~5 전체 통과 + npm run lint/build 통과.\\n\\n핵심 수정 파일: app/api/quote/[token]/route.ts (단일 파일 집중 수정)\\n의존 타입: types/quote.ts (수정 불필요, 참조만)\\n테스트: Playwright MCP 도구 직접 사용 (별도 테스트 파일 불필요)"
+    },
+    {
+      "id": "8a7b0f5f-b55e-43cc-8af7-6862eb8979e4",
+      "name": "토큰 검증 강화 및 AbortController 타임아웃 구현",
+      "description": "route.ts의 토큰 최소 길이를 8자에서 16자로 상향하고, Notion API 호출에 AbortController 기반 10초 타임아웃을 적용한다.\nDB 쿼리 fetch와 블록 조회 fetch 각각에 독립적인 타임아웃을 적용하여 연쇄 hang 방지.",
+      "notes": "AbortController는 DB 쿼리용과 블록 조회용을 각각 별도로 생성. 공유하면 하나가 abort 시 다른 fetch도 취소되는 문제 발생.",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "7c4fd640-ed61-4d2e-9257-e7104af531b0"
+        }
+      ],
+      "createdAt": "2026-04-01T09:11:16.485Z",
+      "updatedAt": "2026-04-01T09:11:16.485Z",
+      "relatedFiles": [
+        {
+          "path": "app/api/quote/[token]/route.ts",
+          "type": "TO_MODIFY",
+          "description": "토큰 검증 로직(24번째 줄) 및 fetch 호출부 수정",
+          "lineStart": 1,
+          "lineEnd": 147
+        },
+        {
+          "path": "types/quote.ts",
+          "type": "REFERENCE",
+          "description": "QuoteApiError 타입 참조 (code: INTERNAL_ERROR)",
+          "lineStart": 65,
+          "lineEnd": 68
+        }
+      ],
+      "implementationGuide": "1. 토큰 길이 검증 수정:\n   token.length < 8 → token.length < 16\n\n2. AbortController 헬퍼 패턴 (DB 쿼리에 적용):\n   const controller = new AbortController()\n   const timeoutId = setTimeout(() => controller.abort(), 10_000)\n   try { fetch(url, { signal: controller.signal, ... }) }\n   finally { clearTimeout(timeoutId) }\n\n3. fetch 오류 처리 확장:\n   catch에서 error.name === 'AbortError' 감지 시\n   → 504 응답: { error: '요청 시간이 초과되었습니다.', code: 'INTERNAL_ERROR' }\n\n4. 블록 조회 fetch에도 동일 패턴 적용 (다음 태스크에서 구현될 블록 조회 로직과 연동)",
+      "verificationCriteria": "길이 15자 토큰 → 400 응답 반환. Notion API 응답이 10초 초과 시 504 응답 반환. npm run lint 통과.",
+      "analysisResult": "Phase 1 목표: Notion 데이터베이스에서 견적서 데이터를 안전하게 조회하는 서버 파이프라인 완성 + Playwright MCP E2E 시나리오 1~5 전체 통과 + npm run lint/build 통과.\\n\\n핵심 수정 파일: app/api/quote/[token]/route.ts (단일 파일 집중 수정)\\n의존 타입: types/quote.ts (수정 불필요, 참조만)\\n테스트: Playwright MCP 도구 직접 사용 (별도 테스트 파일 불필요)"
+    },
+    {
+      "id": "4e336fb5-5581-4900-a632-18b044ec2e6d",
+      "name": "Notion 테이블 블록 파싱 구현",
+      "description": "route.ts의 TODO 상태인 항목 파싱 로직을 실제 Notion 테이블 블록 파싱으로 교체한다.\nNotion GET /v1/blocks/{page_id}/children API를 호출하여 테이블 블록을 찾고, 테이블 행(table_row)을 QuoteItem[] 으로 변환한다.",
+      "notes": "Notion 테이블 블록 구조: cells는 2차원 배열 [[{type, plain_text, ...}], ...]. 빈 셀은 빈 배열[]이므로 optional chaining 필수. 헤더 행 존재 시 index 0은 스킵.",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "8a7b0f5f-b55e-43cc-8af7-6862eb8979e4"
+        }
+      ],
+      "createdAt": "2026-04-01T09:11:16.485Z",
+      "updatedAt": "2026-04-01T09:11:16.485Z",
+      "relatedFiles": [
+        {
+          "path": "app/api/quote/[token]/route.ts",
+          "type": "TO_MODIFY",
+          "description": "rawItems 매핑 로직(104~114번째 줄) 교체 및 parseLineItems 함수 추가",
+          "lineStart": 104,
+          "lineEnd": 114
+        },
+        {
+          "path": "types/quote.ts",
+          "type": "REFERENCE",
+          "description": "QuoteItem 인터페이스 참조",
+          "lineStart": 4,
+          "lineEnd": 15
+        }
+      ],
+      "implementationGuide": "1. parseLineItems 헬퍼 함수 추가 (route.ts 내부):\n   async function parseLineItems(pageId, notionApiKey): Promise<QuoteItem[]>\n   - AbortController 10초 타임아웃 적용\n   - GET /v1/blocks/{pageId}/children 호출\n   - results에서 type === 'table' 블록 찾기\n   - 없으면 빈 배열 반환\n   - 테이블 블록 id로 다시 GET /v1/blocks/{tableBlockId}/children 호출\n   - type === 'table_row' 블록들 필터\n   - 첫 번째 행(헤더) 스킵\n   - 각 행의 cells 파싱:\n     cells[0][0].plain_text → name\n     Number(cells[1][0].plain_text.replace(/,/g, '')) → quantity\n     Number(cells[2][0].plain_text.replace(/,/g, '')) → unitPrice\n     Number(cells[3][0].plain_text.replace(/,/g, '')) → amount\n     cells[4]?.[0]?.plain_text || undefined → note\n   - QuoteItem[] 반환\n\n2. 기존 rawItems 매핑 코드 교체:\n   const items = await parseLineItems(page.id, notionApiKey)\n\n3. eslint-disable 주석 유지 (any 타입 Notion 응답)\n4. console.error 패턴: '[API] 블록 조회 오류:' 형식 유지",
+      "verificationCriteria": "정상 테스트 견적서의 /api/quote/{token} 응답에 line_items 배열이 Notion 테이블 데이터와 일치하여 반환됨. 빈 테이블 견적서 응답에 items: [] 반환. npm run lint 통과.",
+      "analysisResult": "Phase 1 목표: Notion 데이터베이스에서 견적서 데이터를 안전하게 조회하는 서버 파이프라인 완성 + Playwright MCP E2E 시나리오 1~5 전체 통과 + npm run lint/build 통과.\\n\\n핵심 수정 파일: app/api/quote/[token]/route.ts (단일 파일 집중 수정)\\n의존 타입: types/quote.ts (수정 불필요, 참조만)\\n테스트: Playwright MCP 도구 직접 사용 (별도 테스트 파일 불필요)"
+    },
+    {
+      "id": "ae0a5f32-52ff-4c4b-94af-8fccbb1212e6",
+      "name": "캐싱 전략 적용 (no-store → revalidate 60초)",
+      "description": "route.ts의 Notion API fetch 호출에서 cache: 'no-store'를 제거하고 next: { revalidate: 60 } 캐싱 전략으로 교체한다.\nDB 쿼리 fetch와 블록 조회 fetch 모두 동일하게 적용.",
+      "notes": "revalidate: 60 적용 시 동일 토큰 재요청은 60초간 캐시에서 반환됨. 실시간 반영이 필요한 경우 no-store로 되돌릴 수 있음 (ROADMAP.md 오픈 이슈 #2 참조).",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "4e336fb5-5581-4900-a632-18b044ec2e6d"
+        }
+      ],
+      "createdAt": "2026-04-01T09:11:16.485Z",
+      "updatedAt": "2026-04-01T09:11:16.485Z",
+      "relatedFiles": [
+        {
+          "path": "app/api/quote/[token]/route.ts",
+          "type": "TO_MODIFY",
+          "description": "fetch 캐시 옵션 변경 (no-store 제거, revalidate 60 추가)",
+          "lineStart": 34,
+          "lineEnd": 55
+        }
+      ],
+      "implementationGuide": "1. DB 쿼리 fetch 옵션 변경:\n   cache: 'no-store' 제거\n   next: { revalidate: 60 } 추가\n\n2. parseLineItems 내 블록 조회 fetch에도 동일 적용:\n   next: { revalidate: 60 }\n\n3. 주석 업데이트:\n   '60초 캐싱 (견적서는 발송 후 잘 변경되지 않음)'\n\n참고: AbortController의 signal과 next.revalidate는 동시에 사용 가능",
+      "verificationCriteria": "route.ts에 cache: 'no-store' 코드가 없고 next: { revalidate: 60 }이 적용됨. npm run build 통과 (캐싱 설정 오류 없음).",
+      "analysisResult": "Phase 1 목표: Notion 데이터베이스에서 견적서 데이터를 안전하게 조회하는 서버 파이프라인 완성 + Playwright MCP E2E 시나리오 1~5 전체 통과 + npm run lint/build 통과.\\n\\n핵심 수정 파일: app/api/quote/[token]/route.ts (단일 파일 집중 수정)\\n의존 타입: types/quote.ts (수정 불필요, 참조만)\\n테스트: Playwright MCP 도구 직접 사용 (별도 테스트 파일 불필요)"
+    },
+    {
+      "id": "adc6defe-1422-44fb-bbb4-011c9aa8524e",
+      "name": "Playwright MCP E2E — API 시나리오 1~5 검증",
+      "description": "개발 서버(npm run dev) 실행 상태에서 Playwright MCP 도구를 사용하여 API 엔드포인트 5개 시나리오를 순차 검증한다.",
+      "notes": "Playwright MCP의 browser_navigate는 JSON API 응답을 브라우저에서 텍스트로 표시함. browser_evaluate로 JSON.parse(document.body.innerText) 실행하여 파싱. HTTP 상태 코드는 browser_network_requests 또는 응답 body의 내용으로 간접 확인.",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "ae0a5f32-52ff-4c4b-94af-8fccbb1212e6"
+        }
+      ],
+      "createdAt": "2026-04-01T09:11:16.485Z",
+      "updatedAt": "2026-04-01T09:11:16.485Z",
+      "relatedFiles": [
+        {
+          "path": "app/api/quote/[token]/route.ts",
+          "type": "REFERENCE",
+          "description": "API 응답 구조 참조",
+          "lineStart": 1,
+          "lineEnd": 147
+        },
+        {
+          "path": "types/quote.ts",
+          "type": "REFERENCE",
+          "description": "QuoteApiResponse, QuoteApiError 타입 참조",
+          "lineStart": 59,
+          "lineEnd": 68
+        }
+      ],
+      "implementationGuide": "사전 조건: npm run dev 실행 중, .env.local 환경변수 설정 완료, Notion 테스트 데이터 3개 준비\n\n시나리오 1 — 정상 토큰 200 응답:\n  browser_navigate → http://localhost:3000/api/quote/{valid_token}\n  browser_evaluate → JSON.parse(document.body.innerText)\n  검증: status 200, 필드 존재 (id, title, client, provider, items, subtotal, tax, total)\n\n시나리오 2 — 존재하지 않는 토큰 404:\n  browser_navigate → /api/quote/invalidtokenxyzabc1234\n  검증: HTTP 404, body.code === 'NOT_FOUND'\n\n시나리오 3 — 만료된 토큰 410:\n  browser_navigate → /api/quote/{expired_token}\n  검증: HTTP 410, body.code === 'EXPIRED'\n\n시나리오 4 — 열거 공격 방지 (3개 잘못된 토큰):\n  토큰 aaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbb, cccccccccccccccc 순차 요청\n  각각 404 응답, 응답 구조 동일 확인\n\n시나리오 5 — 빈 항목 견적서:\n  browser_navigate → /api/quote/{empty_items_token}\n  검증: HTTP 200, body.data.items === []",
+      "verificationCriteria": "시나리오 1~5 전체 통과. 각 시나리오에서 예상 HTTP 상태 코드와 응답 JSON 구조가 일치함.",
+      "analysisResult": "Phase 1 목표: Notion 데이터베이스에서 견적서 데이터를 안전하게 조회하는 서버 파이프라인 완성 + Playwright MCP E2E 시나리오 1~5 전체 통과 + npm run lint/build 통과.\\n\\n핵심 수정 파일: app/api/quote/[token]/route.ts (단일 파일 집중 수정)\\n의존 타입: types/quote.ts (수정 불필요, 참조만)\\n테스트: Playwright MCP 도구 직접 사용 (별도 테스트 파일 불필요)"
+    },
+    {
+      "id": "d2f0af78-fefc-419c-bfc9-ecaa6605d155",
+      "name": "lint 및 build 최종 검증",
+      "description": "Phase 1 모든 코드 구현 완료 후 npm run lint와 npm run build를 실행하여 오류 없음을 확인한다.",
+      "notes": "빌드 실패 시 오류 메시지를 기반으로 해당 파일 수정 후 재실행. TypeScript strict 모드 활성화 상태이므로 any 타입 처리 주의.",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "adc6defe-1422-44fb-bbb4-011c9aa8524e"
+        }
+      ],
+      "createdAt": "2026-04-01T09:11:16.485Z",
+      "updatedAt": "2026-04-01T09:11:16.485Z",
+      "relatedFiles": [
+        {
+          "path": "app/api/quote/[token]/route.ts",
+          "type": "REFERENCE",
+          "description": "최종 구현 결과 파일",
+          "lineStart": 1,
+          "lineEnd": 147
+        },
+        {
+          "path": "package.json",
+          "type": "REFERENCE",
+          "description": "lint, build 스크립트 확인",
+          "lineStart": 6,
+          "lineEnd": 9
+        },
+        {
+          "path": "tsconfig.json",
+          "type": "REFERENCE",
+          "description": "TypeScript 설정 참조"
+        }
+      ],
+      "implementationGuide": "1. npm run lint 실행 → ESLint 오류 없음 확인\n   - any 타입 관련 eslint-disable 주석이 적절히 유지되었는지 확인\n   - @next/next/no-img-element 경고 확인 (quote-viewer.tsx, 기존 주석 유지)\n\n2. npm run build 실행 → TypeScript 컴파일 + Next.js 빌드 성공 확인\n   - route.ts의 타입 오류 없음\n   - 환경변수 관련 빌드 경고 없음\n\n3. 빌드 성공 시 Phase 1 완료 선언",
+      "verificationCriteria": "npm run lint 오류 0개. npm run build 성공 (exit code 0). Phase 1 Definition of Done 전체 충족.",
+      "analysisResult": "Phase 1 목표: Notion 데이터베이스에서 견적서 데이터를 안전하게 조회하는 서버 파이프라인 완성 + Playwright MCP E2E 시나리오 1~5 전체 통과 + npm run lint/build 통과.\\n\\n핵심 수정 파일: app/api/quote/[token]/route.ts (단일 파일 집중 수정)\\n의존 타입: types/quote.ts (수정 불필요, 참조만)\\n테스트: Playwright MCP 도구 직접 사용 (별도 테스트 파일 불필요)"
+    }
+  ]
+}
