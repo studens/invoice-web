@@ -16,6 +16,11 @@ export default function NotFound() {
         <p className="text-muted-foreground max-w-sm">
           요청하신 페이지가 존재하지 않거나 이동되었습니다.
         </p>
+        {process.env.PROVIDER_EMAIL && (
+          <p className="text-sm text-muted-foreground">
+            문의: {process.env.PROVIDER_EMAIL}
+          </p>
+        )}
       </div>
       <Button asChild>
         <Link href="/">

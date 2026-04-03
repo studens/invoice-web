@@ -1,6 +1,7 @@
 "use client";
 
 import type { QuoteData } from "@/types/quote";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -13,8 +14,15 @@ import {
 } from "@/components/ui/table";
 import { Printer } from "lucide-react";
 
-// 금액을 한국 원화 형식으로 포맷
-function formatKRW(amount: number): string {
+// 금액을 통화 형식으로 포맷 (KRW 기본, USD 지원)
+function formatCurrency(amount: number, currency?: string): string {
+  if (currency === "USD") {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+    }).format(amount);
+  }
   return new Intl.NumberFormat("ko-KR", {
     style: "currency",
     currency: "KRW",
@@ -47,7 +55,7 @@ export function QuoteViewer({ quote }: QuoteViewerProps) {
         <p className="text-sm text-muted-foreground">
           견적서 #{quote.quoteNumber}
         </p>
-        <Button onClick={handlePrint} size="sm" variant="outline">
+        <Button onClick={handlePrint} size="sm" variant="outline" aria-label="견적서 PDF 저장">
           <Printer className="size-4 mr-2" />
           PDF 저장
         </Button>
@@ -59,18 +67,37 @@ export function QuoteViewer({ quote }: QuoteViewerProps) {
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">견적서</h1>
-            <p className="mt-1 text-muted-foreground text-sm">
-              No. {quote.quoteNumber}
-            </p>
+            <div className="mt-1 flex items-center gap-2">
+              <p className="text-muted-foreground text-sm">
+                No. {quote.quoteNumber}
+              </p>
+              {/* 견적서 상태 배지 */}
+              {quote.status && (
+                <Badge
+                  variant={
+                    quote.status === "만료됨"
+                      ? "destructive"
+                      : quote.status === "발송됨"
+                        ? "default"
+                        : "secondary"
+                  }
+                >
+                  {quote.status}
+                </Badge>
+              )}
+            </div>
           </div>
-          {/* 공급자 로고 (있는 경우) */}
-          {quote.provider.logoUrl && (
+          {/* 공급자 로고 (있는 경우) / 없으면 회사명 텍스트 폴백 */}
+          {quote.provider.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={quote.provider.logoUrl}
               alt={`${quote.provider.name} 로고`}
               className="h-12 w-auto object-contain"
+              loading="lazy"
             />
+          ) : (
+            <p className="text-xl font-bold">{quote.provider.name}</p>
           )}
         </div>
 
@@ -109,7 +136,7 @@ export function QuoteViewer({ quote }: QuoteViewerProps) {
         <Separator className="mb-6" />
 
         {/* 견적 항목 테이블 */}
-        <div className="mb-6 overflow-x-auto">
+        <div className="mb-6 overflow-x-auto" aria-label="견적 항목 목록">
           <Table>
             <TableHeader>
               <TableRow>
@@ -141,10 +168,10 @@ export function QuoteViewer({ quote }: QuoteViewerProps) {
                       {item.quantity.toLocaleString("ko-KR")}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatKRW(item.unitPrice)}
+                      {formatCurrency(item.unitPrice, quote.currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
-                      {formatKRW(item.amount)}
+                      {formatCurrency(item.amount, quote.currency)}
                     </TableCell>
                   </TableRow>
                 ))
@@ -158,18 +185,18 @@ export function QuoteViewer({ quote }: QuoteViewerProps) {
           <div className="w-full sm:w-72 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">소계</span>
-              <span className="tabular-nums">{formatKRW(quote.subtotal)}</span>
+              <span className="tabular-nums">{formatCurrency(quote.subtotal, quote.currency)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">
                 부가세 ({Math.round(quote.taxRate * 100)}%)
               </span>
-              <span className="tabular-nums">{formatKRW(quote.tax)}</span>
+              <span className="tabular-nums">{formatCurrency(quote.tax, quote.currency)}</span>
             </div>
             <Separator />
             <div className="flex justify-between font-semibold text-lg">
               <span>합계</span>
-              <span className="tabular-nums">{formatKRW(quote.total)}</span>
+              <span className="tabular-nums">{formatCurrency(quote.total, quote.currency)}</span>
             </div>
           </div>
         </div>

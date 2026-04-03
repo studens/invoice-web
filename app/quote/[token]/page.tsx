@@ -54,11 +54,19 @@ export default async function QuotePage({ params }: Props) {
     // 만료 또는 서버 오류는 별도 에러 메시지 표시
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 text-center px-4">
-        <div className="space-y-2">
+        <div className="space-y-2" role="alert">
           <h1 className="text-2xl font-bold">
             {result.code === "EXPIRED" ? "만료된 견적서" : "오류 발생"}
           </h1>
           <p className="text-muted-foreground max-w-sm">{result.error}</p>
+          {result.code === "EXPIRED" && result.expiry_date && (
+            <p className="text-sm text-muted-foreground">
+              유효기간: {result.expiry_date.replace(
+                /(\d{4})-(\d{2})-(\d{2})/,
+                "$1년 $2월 $3일"
+              )}까지
+            </p>
+          )}
         </div>
       </div>
     );
