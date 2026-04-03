@@ -17,6 +17,19 @@ npm run start    # 프로덕션 서버 실행
 npm run lint     # ESLint 실행
 ```
 
+## 작업 완료 체크리스트
+
+태스크 구현 완료 후 반드시 아래 순서로 검증한다.
+
+```bash
+npm run check-all   # lint + type-check + build 한 번에 실행
+```
+
+- `npm run lint` — ESLint 규칙 위반 없어야 함
+- `npm run type-check` — TypeScript 타입 오류 없어야 함
+- `npm run build` — 프로덕션 빌드 성공해야 함
+- 세 단계 모두 통과해야 태스크 완료로 간주
+
 ## 아키텍처
 
 Next.js 16 App Router 기반 스타터 킷. 테스트 프레임워크 미설정.
@@ -43,3 +56,5 @@ Next.js 16 App Router 기반 스타터 킷. 테스트 프레임워크 미설정.
 
 ### 경로 별칭
 - `@/*` → 프로젝트 루트 (예: `@/components/ui/button`)
+
+

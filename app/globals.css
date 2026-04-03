@@ -137,9 +137,20 @@
     print-color-adjust: exact;
   }
 
-  /* 인쇄 시 불필요한 여백 제거 */
+  /* 인쇄 여백 */
   @page {
-    margin: 1.5cm 2cm;
+    margin: 20mm;
+  }
+
+  /* 흰색 배경 강제 */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* 테이블 헤더 페이지마다 반복 */
+  thead {
+    display: table-header-group;
   }
 
   /* 테이블이 페이지를 가로지르지 않도록 */
