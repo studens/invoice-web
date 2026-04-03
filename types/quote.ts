@@ -52,6 +52,10 @@ export interface QuoteData {
   total: number;
   /** 메모 (선택) */
   memo?: string;
+  /** 통화 단위 (선택, 기본 KRW) */
+  currency?: "KRW" | "USD";
+  /** 견적서 상태 (선택: 초안/발송됨/만료됨) */
+  status?: string;
   /** 공급자 정보 */
   provider: QuoteProvider;
 }
@@ -65,4 +69,6 @@ export interface QuoteApiResponse {
 export interface QuoteApiError {
   error: string;
   code: "NOT_FOUND" | "EXPIRED" | "INVALID_TOKEN" | "INTERNAL_ERROR";
+  /** 만료일 (EXPIRED 오류 시 포함) */
+  expiry_date?: string;
 }

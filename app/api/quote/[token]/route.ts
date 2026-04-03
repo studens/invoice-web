@@ -1,5 +1,102 @@
 import type { NextRequest } from "next/server";
-import type { QuoteApiResponse, QuoteApiError } from "@/types/quote";
+import type { QuoteApiResponse, QuoteApiError, QuoteItem } from "@/types/quote";
+
+// Notion API 응답에 대한 최소 타입 인터페이스 (전체 타이핑은 과도한 복잡도)
+interface NotionRelationItem {
+  id: string;
+}
+
+interface NotionPage {
+  id: string;
+  properties: Record<string, unknown>;
+}
+
+// Notion 텍스트 콘텐츠 최소 타입
+interface NotionTextContent {
+  plain_text: string;
+}
+
+// Notion 항목 페이지 프로퍼티 최소 타입
+interface NotionItemProperties {
+  item_name?: { title?: NotionTextContent[] };
+  quantity?: { number?: number };
+  unit_price?: { number?: number };
+  amount?: { number?: number };
+  note?: { rich_text?: NotionTextContent[] };
+}
+
+// Notion 항목 페이지 최소 타입
+interface NotionItemPage {
+  properties: NotionItemProperties;
+}
+
+// Notion 데이터베이스 쿼리 응답 최소 타입
+interface NotionQueryResponse {
+  results: NotionPage[];
+}
+
+// Notion 견적서 페이지 프로퍼티 최소 타입
+interface NotionQuoteProperties {
+  expires_at?: { date?: { start?: string } };
+  quote_number?: { title?: NotionTextContent[] };
+  title?: { rich_text?: NotionTextContent[] };
+  client_name?: { rich_text?: NotionTextContent[] };
+  issued_at?: { date?: { start?: string } };
+  subtotal?: { number?: number };
+  tax_rate?: { number?: number };
+  memo?: { rich_text?: NotionTextContent[] };
+  currency?: { select?: { name?: string } };
+  status?: { select?: { name?: string } };
+  items?: { relation?: NotionRelationItem[] };
+}
+
+// Items DB의 각 항목 페이지를 병렬로 조회하여 QuoteItem[] 반환 (옵션 B)
+async function parseLineItems(page: NotionPage, notionApiKey: string): Promise<QuoteItem[]> {
+  const props = page.properties as NotionQuoteProperties;
+  const relationIds: string[] = (props.items?.relation ?? []).map(
+    (r: NotionRelationItem) => r.id
+  );
+
+  if (relationIds.length === 0) return [];
+
+  // 각 항목 페이지를 병렬 조회 (각각 독립 타임아웃 적용)
+  const itemPages = await Promise.all(
+    relationIds.map(async (id) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const res = await fetch(`https://api.notion.com/v1/pages/${id}`, {
+          headers: {
+            Authorization: `Bearer ${notionApiKey}`,
+            "Notion-Version": "2022-06-28",
+          },
+          signal: controller.signal,
+          // 60초 캐싱 (견적서 항목은 발송 후 잘 변경되지 않음)
+          next: { revalidate: 60 },
+        });
+        if (!res.ok) {
+          console.error("[API] 항목 조회 오류:", id, res.status);
+          return null;
+        }
+        return res.json() as Promise<NotionItemPage>;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    })
+  );
+
+  return itemPages.flatMap((itemPage: NotionItemPage | null) => {
+    if (!itemPage) return [];
+    const p = itemPage.properties;
+    return [{
+      name: p.item_name?.title?.[0]?.plain_text ?? "",
+      quantity: p.quantity?.number ?? 1,
+      unitPrice: p.unit_price?.number ?? 0,
+      amount: p.amount?.number ?? 0,
+      note: p.note?.rich_text?.[0]?.plain_text ?? undefined,
+    }];
+  });
+}
 
 // Next.js 16: params는 Promise 타입 — await 필수
 export async function GET(
@@ -20,8 +117,8 @@ export async function GET(
     return Response.json(errorResponse, { status: 500 });
   }
 
-  // 토큰 기본 유효성 검사 (빈 값 / 비정상 길이 차단)
-  if (!token || token.length < 8 || token.length > 128) {
+  // 토큰 기본 유효성 검사 (빈 값 / 비정상 길이 차단, 최소 16자 이상)
+  if (!token || token.length < 16 || token.length > 128) {
     const errorResponse: QuoteApiError = {
       error: "유효하지 않은 토큰입니다.",
       code: "INVALID_TOKEN",
@@ -30,29 +127,38 @@ export async function GET(
   }
 
   try {
-    // Notion 데이터베이스에서 토큰으로 견적서 조회
-    const notionResponse = await fetch(
-      `https://api.notion.com/v1/databases/${notionDatabaseId}/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${notionApiKey}`,
-          "Content-Type": "application/json",
-          "Notion-Version": "2022-06-28",
-        },
-        body: JSON.stringify({
-          filter: {
-            property: "token",
-            rich_text: {
-              equals: token,
-            },
+    // Notion 데이터베이스에서 토큰으로 견적서 조회 (10초 타임아웃)
+    const dbController = new AbortController();
+    const dbTimeoutId = setTimeout(() => dbController.abort(), 10_000);
+
+    let notionResponse: Response;
+    try {
+      notionResponse = await fetch(
+        `https://api.notion.com/v1/databases/${notionDatabaseId}/query`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${notionApiKey}`,
+            "Content-Type": "application/json",
+            "Notion-Version": "2022-06-28",
           },
-          page_size: 1,
-        }),
-        // 매 요청마다 Notion에서 최신 데이터 조회 (캐시 비활성화)
-        cache: "no-store",
-      }
-    );
+          body: JSON.stringify({
+            filter: {
+              property: "token",
+              rich_text: {
+                equals: token,
+              },
+            },
+            page_size: 1,
+          }),
+          signal: dbController.signal,
+          // 60초 캐싱 (견적서는 발송 후 잘 변경되지 않음)
+          next: { revalidate: 60 },
+        }
+      );
+    } finally {
+      clearTimeout(dbTimeoutId);
+    }
 
     if (!notionResponse.ok) {
       console.error("[API] Notion API 오류:", notionResponse.status, notionResponse.statusText);
@@ -63,8 +169,7 @@ export async function GET(
       return Response.json(errorResponse, { status: 502 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const notionData: any = await notionResponse.json();
+    const notionData: NotionQueryResponse = await notionResponse.json() as NotionQueryResponse;
 
     // 검색 결과 없음
     if (!notionData.results || notionData.results.length === 0) {
@@ -75,9 +180,8 @@ export async function GET(
       return Response.json(errorResponse, { status: 404 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const page: any = notionData.results[0];
-    const props = page.properties;
+    const page: NotionPage = notionData.results[0];
+    const props = page.properties as NotionQuoteProperties;
 
     // 만료일 확인
     const expiresAt: string | undefined =
@@ -85,8 +189,9 @@ export async function GET(
 
     if (expiresAt && new Date(expiresAt) < new Date()) {
       const errorResponse: QuoteApiError = {
-        error: "만료된 견적서입니다.",
+        error: "견적서 유효 기간이 만료되었습니다.",
         code: "EXPIRED",
+        expiry_date: expiresAt,
       };
       return Response.json(errorResponse, { status: 410 });
     }
@@ -100,18 +205,8 @@ export async function GET(
       logoUrl: process.env.PROVIDER_LOGO_URL,
     };
 
-    // Notion 속성을 견적서 데이터 구조로 변환
-    // TODO: Notion 데이터베이스 속성명에 맞게 매핑 업데이트 필요
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawItems: any[] = props.items?.relation ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const items = rawItems.map((item: any) => ({
-      name: item.name ?? "",
-      quantity: Number(item.quantity ?? 1),
-      unitPrice: Number(item.unit_price ?? 0),
-      amount: Number(item.amount ?? 0),
-      note: item.note ?? undefined,
-    }));
+    // Items DB에서 관련 항목 병렬 조회 (옵션 B: Relation 방식)
+    const items = await parseLineItems(page, notionApiKey);
 
     const subtotal: number = Number(props.subtotal?.number ?? 0);
     const taxRate: number = Number(props.tax_rate?.number ?? 0.1);
@@ -131,12 +226,23 @@ export async function GET(
         tax,
         total,
         memo: props.memo?.rich_text?.[0]?.plain_text ?? undefined,
+        currency: (props.currency?.select?.name as "KRW" | "USD" | undefined) ?? "KRW",
+        status: props.status?.select?.name ?? undefined,
         provider,
       },
     };
 
     return Response.json(responseData);
   } catch (error) {
+    // 타임아웃 오류 처리
+    if (error instanceof Error && error.name === "AbortError") {
+      console.error("[API] Notion API 타임아웃");
+      const errorResponse: QuoteApiError = {
+        error: "요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+        code: "INTERNAL_ERROR",
+      };
+      return Response.json(errorResponse, { status: 504 });
+    }
     console.error("[API] 예기치 않은 오류:", error);
     const errorResponse: QuoteApiError = {
       error: "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
